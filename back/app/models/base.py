@@ -88,5 +88,6 @@ class FtConversation(Base):
     project_id = Column(Integer, ForeignKey(f"{SCHEMA}.projects.id", ondelete="CASCADE"), nullable=False)
     is_base    = Column(Boolean, nullable=False, default=False)
     base_id    = Column(Integer, ForeignKey(f"{SCHEMA}.ft_conversations.id"), nullable=True)
+    split      = Column(String(10), nullable=False, default="train")
     messages   = Column(JSONB, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)

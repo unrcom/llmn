@@ -14,6 +14,7 @@ interface FtConversation {
   project_id: number
   is_base: boolean
   base_id: number | null
+  split: string
   messages: MessageTurn[]
   created_at: string
 }
@@ -45,6 +46,15 @@ export default function FtDataPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isBase, setIsBase] = useState(false)
   const [baseId, setBaseId] = useState<number | null>(null)
+  const [split, setSplit] = useState<'train' | 'valid'>('train')
+
+  function handleSplitChange(newSplit: 'train' | 'valid') {
+    if (newSplit === 'valid') {
+      // validに切り替えたらsystem/userのみ残す
+      setMessages(prev => prev.filter(m => m.role === 'system' || m.role === 'user'))
+    }
+    setSplit(newSplit)
+  }
   const [messages, setMessages] = useState<MessageTurn[]>([
     { role: 'system', content: '' },
     { role: 'user', content: '' },
@@ -77,6 +87,7 @@ export default function FtDataPage() {
     setEditingId(null)
     setIsBase(false)
     setBaseId(null)
+    setSplit('train')
     setMessages([
       { role: 'user', content: '' },
       { role: 'assistant', content: '' },
@@ -93,6 +104,7 @@ export default function FtDataPage() {
     setEditingId(conv.id)
     setIsBase(conv.is_base)
     setBaseId(conv.base_id)
+    setSplit(conv.split as 'train' | 'valid')
     setMessages(conv.messages)
     setError('')
   }
@@ -129,10 +141,11 @@ export default function FtDataPage() {
         project_id: selectedProjectId,
         is_base: isBase,
         base_id: baseId,
+        split,
         messages,
       }
       if (editingId) {
-        await apiClient.put(`/ft-conversations/${editingId}`, { is_base: isBase, messages })
+        await apiClient.put(`/ft-conversations/${editingId}`, { is_base: isBase, split, messages })
       } else {
         const res = await apiClient.post('/ft-conversations', body)
         setEditingId(res.data.id)
@@ -142,6 +155,25 @@ export default function FtDataPage() {
       setError(e.response?.data?.detail || '保存に失敗しました')
     } finally {
       setSaving(false)
+    }
+  }
+
+  function copyPattern(conv: FtConversation) {
+    setEditingId(null)
+    setIsBase(false)
+    setBaseId(conv.base_id)
+    setSplit('train')
+    setMessages([...conv.messages])
+    setError('')
+  }
+
+  async function handleToggleSplit(conv: FtConversation) {
+    const newSplit = conv.split === 'train' ? 'valid' : 'train'
+    try {
+      await apiClient.patch(`/ft-conversations/${conv.id}/split?split=${newSplit}`, {})
+      if (selectedProjectId) await loadConversations(selectedProjectId)
+    } catch {
+      setError('splitの変更に失敗しました')
     }
   }
 
@@ -156,15 +188,15 @@ export default function FtDataPage() {
     }
   }
 
-  async function handleExport() {
+  async function handleExport(split: 'train' | 'valid') {
     if (!selectedProjectId) return
     try {
-      const res = await apiClient.get(`/ft-conversations/export?project_id=${selectedProjectId}`)
+      const res = await apiClient.get(`/ft-conversations/export?project_id=${selectedProjectId}&split=${split}`)
       const blob = new Blob([res.data], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'train.jsonl'
+      a.download = `${split}.jsonl`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -183,9 +215,14 @@ export default function FtDataPage() {
     <div className="p-6 space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">FTデータ管理</h2>
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={!selectedProjectId}>
-          <Download className="h-4 w-4 mr-2" />JSONL出力
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => handleExport('train')} disabled={!selectedProjectId}>
+            <Download className="h-4 w-4 mr-2" />train
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport('valid')} disabled={!selectedProjectId}>
+            <Download className="h-4 w-4 mr-2" />valid
+          </Button>
+        </div>
       </div>
 
       {/* プロジェクト選択 */}
@@ -219,6 +256,14 @@ export default function FtDataPage() {
                   <Button size="sm" variant={isBase ? "default" : "outline"} onClick={newPattern}>
                     パターン
                   </Button>
+                  {!isBase && (
+                    <button
+                      onClick={() => handleSplitChange(split === 'train' ? 'valid' : 'train')}
+                      className={`px-2 py-1 rounded text-xs font-medium border ${split === 'train' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}
+                    >
+                      {split}
+                    </button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -311,10 +356,19 @@ export default function FtDataPage() {
                     <div onClick={() => selectConversation(conv)} className="flex-1">
                       <div className="flex items-center gap-2">
                         {conv.base_id && <Badge variant="outline" className="text-xs">ベースID: {conv.base_id}</Badge>}
+                        <Badge
+                          variant={conv.split === 'train' ? 'secondary' : 'outline'}
+                          className="text-xs"
+                        >
+                          {conv.split}
+                        </Badge>
                         <span className="text-sm">{getFirstUserContent(conv)}</span>
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">{conv.created_at}</p>
                     </div>
+                    <Button variant="ghost" size="sm" onClick={() => copyPattern(conv)} title="コピー">
+                      <Copy className="h-3 w-3" />
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => handleDelete(conv.id, `パターン「${getFirstUserContent(conv)}」`)}>
                       <Trash2 className="h-3 w-3" />
                     </Button>

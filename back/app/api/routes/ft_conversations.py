@@ -2,9 +2,6 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, Integer, Boolean, Text
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.sql import func
 from pydantic import BaseModel
 from typing import Optional, List
 from app.db.database import get_db
@@ -23,11 +20,13 @@ class FtConversationCreate(BaseModel):
     project_id: int
     is_base: bool = False
     base_id: Optional[int] = None
+    split: str = "train"
     messages: List[MessageTurn]
 
 
 class FtConversationUpdate(BaseModel):
     is_base: Optional[bool] = None
+    split: Optional[str] = None
     messages: List[MessageTurn]
 
 
@@ -36,6 +35,7 @@ class FtConversationResponse(BaseModel):
     project_id: int
     is_base: bool
     base_id: Optional[int]
+    split: str
     messages: list
     created_at: str
 
@@ -59,6 +59,7 @@ def get_ft_conversations(
             project_id=c.project_id,
             is_base=c.is_base,
             base_id=c.base_id,
+            split=c.split,
             messages=c.messages,
             created_at=c.created_at.isoformat(),
         )
@@ -89,6 +90,7 @@ def create_ft_conversation(
         project_id=req.project_id,
         is_base=req.is_base,
         base_id=req.base_id,
+        split=req.split,
         messages=messages,
     )
     db.add(conv)
@@ -100,6 +102,7 @@ def create_ft_conversation(
         project_id=conv.project_id,
         is_base=conv.is_base,
         base_id=conv.base_id,
+        split=conv.split,
         messages=conv.messages,
         created_at=conv.created_at.isoformat(),
     )
@@ -118,6 +121,8 @@ def update_ft_conversation(
 
     if req.is_base is not None:
         conv.is_base = req.is_base
+    if req.split is not None:
+        conv.split = req.split
     conv.messages = [{"role": t.role, "content": t.content} for t in req.messages]
     db.commit()
     db.refresh(conv)
@@ -127,6 +132,34 @@ def update_ft_conversation(
         project_id=conv.project_id,
         is_base=conv.is_base,
         base_id=conv.base_id,
+        split=conv.split,
+        messages=conv.messages,
+        created_at=conv.created_at.isoformat(),
+    )
+
+
+@router.patch("/{conv_id}/split", response_model=FtConversationResponse)
+def update_split(
+    conv_id: int,
+    split: str,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    conv = db.query(FtConversation).filter(FtConversation.id == conv_id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="会話が見つかりません")
+    if split not in ("train", "valid"):
+        raise HTTPException(status_code=400, detail="split は train または valid を指定してください")
+    conv.split = split
+    db.commit()
+    db.refresh(conv)
+
+    return FtConversationResponse(
+        id=conv.id,
+        project_id=conv.project_id,
+        is_base=conv.is_base,
+        base_id=conv.base_id,
+        split=conv.split,
         messages=conv.messages,
         created_at=conv.created_at.isoformat(),
     )
@@ -148,13 +181,18 @@ def delete_ft_conversation(
 @router.get("/export", response_class=PlainTextResponse)
 def export_ft_conversations(
     project_id: int,
+    split: str = "train",
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
     """ベース + パターンを結合してJSONL形式で出力"""
+    if split not in ("train", "valid"):
+        raise HTTPException(status_code=400, detail="split は train または valid を指定してください")
+
     convs = db.query(FtConversation).filter(
         FtConversation.project_id == project_id,
         FtConversation.is_base == False,
+        FtConversation.split == split,
     ).order_by(FtConversation.created_at.asc()).all()
 
     lines = []
