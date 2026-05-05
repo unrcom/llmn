@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Trash2 } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
+import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
 
 interface Project {
   id: number
@@ -12,8 +13,16 @@ interface Project {
   display_name: string
 }
 
+interface SystemPrompt {
+  id: number
+  project_id: number
+  name: string
+  content: string
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [systemPrompts, setSystemPrompts] = useState<Record<number, SystemPrompt>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -21,10 +30,20 @@ export default function ProjectsPage() {
   const [displayName, setDisplayName] = useState('')
   const [adding, setAdding] = useState(false)
 
+  const [editingSpProjectId, setEditingSpProjectId] = useState<number | null>(null)
+  const [editingSpContent, setEditingSpContent] = useState('')
+
   async function load() {
     try {
       const res = await apiClient.get('/projects')
       setProjects(res.data)
+      // 各プロジェクトのシステムプロンプトを取得
+      const spMap: Record<number, SystemPrompt> = {}
+      await Promise.all(res.data.map(async (p: Project) => {
+        const spRes = await apiClient.get(`/system-prompts?project_id=${p.id}`)
+        if (spRes.data.length > 0) spMap[p.id] = spRes.data[0]
+      }))
+      setSystemPrompts(spMap)
     } catch {
       setError('プロジェクトの取得に失敗しました')
     } finally {
@@ -56,6 +75,28 @@ export default function ProjectsPage() {
       await load()
     } catch {
       setError('削除に失敗しました')
+    }
+  }
+
+  async function handleSaveSystemPrompt(projectId: number) {
+    const existing = systemPrompts[projectId]
+    try {
+      if (existing) {
+        await apiClient.put(`/system-prompts/${existing.id}`, {
+          name: 'default',
+          content: editingSpContent,
+        })
+      } else {
+        await apiClient.post('/system-prompts', {
+          project_id: projectId,
+          name: 'default',
+          content: editingSpContent,
+        })
+      }
+      setEditingSpProjectId(null)
+      await load()
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'システムプロンプトの保存に失敗しました')
     }
   }
 
@@ -103,14 +144,59 @@ export default function ProjectsPage() {
         ) : (
           projects.map(p => (
             <Card key={p.id}>
-              <CardContent className="flex items-center justify-between py-3">
-                <div>
-                  <p className="font-medium text-sm">{p.display_name}</p>
-                  <p className="text-xs text-gray-500">{p.name}</p>
+              <CardContent className="py-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">{p.display_name}</p>
+                    <p className="text-xs text-gray-500">{p.name}</p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+
+                {/* システムプロンプト */}
+                <div className="border-t pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs text-gray-500">システムプロンプト</Label>
+                    {editingSpProjectId !== p.id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditingSpProjectId(p.id)
+                          setEditingSpContent(systemPrompts[p.id]?.content || '')
+                        }}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {editingSpProjectId === p.id ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        rows={4}
+                        value={editingSpContent}
+                        onChange={e => setEditingSpContent(e.target.value)}
+                        placeholder="システムプロンプトを入力"
+                        className="text-sm"
+                      />
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => handleSaveSystemPrompt(p.id)}>
+                          <Check className="h-3 w-3 mr-1" />保存
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditingSpProjectId(null)}>
+                          <X className="h-3 w-3 mr-1" />キャンセル
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                      {systemPrompts[p.id]?.content || <span className="text-gray-400">未設定</span>}
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))

@@ -105,3 +105,20 @@ def generate(req: GenerateRequest, _=Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/system-prompt/{model_id}")
+def get_model_system_prompt(model_id: int, _=Depends(get_current_user)):
+    from app.db.database import get_db
+    from app.models.base import Model, TrainingJob, SystemPrompt
+    db = next(get_db())
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model or model.model_type != "fine-tuned":
+        return {"system_prompt": None}
+    job = db.query(TrainingJob).filter(TrainingJob.models_id == model.parent_models_id).first()
+    if not job:
+        return {"system_prompt": None}
+    sp = db.query(SystemPrompt).filter(SystemPrompt.project_id == job.project_id).first()
+    if not sp:
+        return {"system_prompt": None}
+    return {"system_prompt": sp.content}

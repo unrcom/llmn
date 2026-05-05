@@ -70,11 +70,9 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!selectedModel) return
-    if (selectedModel.system_prompt) {
-      setSystemPrompt(selectedModel.system_prompt)
-    } else {
-      setSystemPrompt('')
-    }
+    apiClient.get(`/validate/system-prompt/${selectedModel.id}`).then(res => {
+      setSystemPrompt(res.data.system_prompt || '')
+    }).catch(() => setSystemPrompt(''))
     setLoadingModel(true)
     setError(null)
     apiClient.post('/validate/load', {
