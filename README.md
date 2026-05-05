@@ -49,3 +49,19 @@ npm run dev
 
 FTモデルはシステムプロンプトによって動作が大きく変わります。
 学習時と同じシステムプロンプトを設定してから質問してください。
+
+## ユーザー管理
+
+ユーザーはコマンドラインで作成します。
+
+```bash
+cd ~/dev/llmn/back
+
+# 一般ユーザー作成
+python create_user.py <username> <password>
+
+# 管理者ユーザー作成
+python create_user.py <username> <password> --admin
+```
+
+管理者のみプロジェクト・モデル・FTデータ・訓練ジョブの管理が可能です。
