@@ -60,6 +60,11 @@ export default function ChatPage() {
   useEffect(() => {
     if (!selectedProjectId) { setDatasets([]); return }
     apiClient.get(`/datasets?project_id=${selectedProjectId}`).then(res => setDatasets(res.data))
+    apiClient.get(`/system-prompts?project_id=${selectedProjectId}`).then(res => {
+      if (res.data.length > 0) {
+        setSystemPrompt(res.data[0].content)
+      }
+    })
   }, [selectedProjectId])
 
   useEffect(() => {
