@@ -3,7 +3,7 @@ import { apiClient } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Trash2, Plus, Pencil, Check, X } from 'lucide-react'
+import { Loader2, Trash2, Plus, Pencil, Check, X } from 'lucide-react'
 
 interface Project { id: number; display_name: string }
 interface Dataset { id: number; project_id: number; name: string; display_name: string; description: string | null; created_at: string }
@@ -21,6 +21,7 @@ export default function DatasetPage() {
   // ドキュメント追加
   const [newDocContent, setNewDocContent] = useState('')
   const [showAddDoc, setShowAddDoc] = useState(false)
+  const [savingDoc, setSavingDoc] = useState(false)
 
   // ドキュメント編集
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
@@ -95,6 +96,7 @@ export default function DatasetPage() {
   async function addDocument() {
     if (!newDocContent.trim() || !dataset) return
     setError(null)
+    setSavingDoc(true)
     try {
       await apiClient.post(`/datasets/${dataset.id}/documents`, { content: newDocContent })
       setNewDocContent('')
@@ -103,6 +105,8 @@ export default function DatasetPage() {
       setDocuments(res.data)
     } catch (e: any) {
       setError(e.response?.data?.detail || 'エラーが発生しました')
+    } finally {
+      setSavingDoc(false)
     }
   }
 
@@ -186,7 +190,9 @@ export default function DatasetPage() {
                     className="text-sm font-mono"
                   />
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={addDocument}>登録</Button>
+                    <Button size="sm" onClick={addDocument} disabled={savingDoc}>
+                      {savingDoc ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />登録中...</> : '登録'}
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => { setShowAddDoc(false); setNewDocContent('') }}>キャンセル</Button>
                   </div>
                 </div>
