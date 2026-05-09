@@ -3,13 +3,12 @@ services:
     image: postgres:17
     container_name: llmn_db
     environment:
-      POSTGRES_USER: llmn
-      POSTGRES_PASSWORD: llmn
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5434:5432"
     volumes:
       - llmn_db_data:/var/lib/postgresql/data
-
 volumes:
   llmn_db_data:
