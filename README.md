@@ -1,6 +1,8 @@
-# llmn
+# llamune
 
 ⚠️ 現在開発中です。
+
+📖 [セットアップ手順](doc/setup.md)' README.md
 
 閉域LLMを使ったRAGとファインチューニングのプラットフォームです。
 
