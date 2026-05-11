@@ -12,6 +12,7 @@ from typing import Optional, List
 from app.db.database import get_db
 from app.core.config import DATABASE_URL
 from app.core.auth import get_current_user
+from app.core.llm import _detect_backend
 from app.models.base import Project, Model, TrainingJob, FtConversation
 
 router = APIRouter(prefix="/training-jobs", tags=["training_jobs"])
@@ -102,7 +103,10 @@ def _run_training(job_id: int, model_name: str, train_data: str, valid_data: str
         job.log = ""
         db.commit()
 
+        import shutil
         adapter_path = os.path.expanduser(f"~/llmn_adapters/{job_id}")
+        if os.path.exists(adapter_path):
+            shutil.rmtree(adapter_path)
         os.makedirs(adapter_path, exist_ok=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -111,18 +115,35 @@ def _run_training(job_id: int, model_name: str, train_data: str, valid_data: str
             with open(os.path.join(tmpdir, "valid.jsonl"), "w") as f:
                 f.write(valid_data if valid_data else train_data)
 
-            cmd = [
-                "mlx_lm.lora",
-                "--model", model_name,
-                "--train",
-                "--data", tmpdir,
-                "--max-seq-length", str(max_seq_length),
-                "--iters", str(iters),
-                "--batch-size", str(batch_size),
-                "--adapter-path", adapter_path,
-            ]
-            if learning_rate:
-                cmd += ["--learning-rate", str(learning_rate)]
+            is_vlm = (_detect_backend(model_name) == "mlx_vlm")
+
+            if is_vlm:
+                output_file = os.path.join(adapter_path, "adapters.safetensors")
+                cmd = [
+                    "python", "-m", "mlx_vlm.lora",
+                    "--model-path", model_name,
+                    "--dataset", tmpdir,
+                    "--split", "all",
+                    "--iters", str(iters),
+                    "--batch-size", str(batch_size),
+                    "--max-seq-length", str(max_seq_length),
+                    "--output-path", output_file,
+                ]
+                if learning_rate:
+                    cmd += ["--learning-rate", str(learning_rate)]
+            else:
+                cmd = [
+                    "mlx_lm.lora",
+                    "--model", model_name,
+                    "--train",
+                    "--data", tmpdir,
+                    "--max-seq-length", str(max_seq_length),
+                    "--iters", str(iters),
+                    "--batch-size", str(batch_size),
+                    "--adapter-path", adapter_path,
+                ]
+                if learning_rate:
+                    cmd += ["--learning-rate", str(learning_rate)]
 
             process = subprocess.Popen(
                 cmd,

@@ -5,6 +5,12 @@ from typing import Optional
 
 from huggingface_hub import hf_hub_download
 
+# mlx_vlm.generate をメインスレッドでインポートして generation_stream を初期化
+try:
+    from mlx_vlm import generate as _vlm_generate_init  # noqa: F401
+except Exception:
+    pass
+
 _lock = threading.Lock()
 _current_model_name: Optional[str] = None
 _current_adapter_path: Optional[str] = None
@@ -109,3 +115,4 @@ def is_model_loaded() -> bool:
 def generate_with_messages(messages: list, max_tokens: int = 512) -> str:
     with _lock:
         return _generate_impl(messages, max_tokens)
+

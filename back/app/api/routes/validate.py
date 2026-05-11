@@ -67,7 +67,6 @@ def load_model(req: LoadRequest, _=Depends(get_current_user)):
 @router.post("/generate")
 def generate(req: GenerateRequest, _=Depends(get_current_user)):
     from app.db.database import get_db
-    from sqlalchemy.orm import Session
 
     if not llm.is_model_loaded():
         raise HTTPException(status_code=400, detail="モデルがロードされていません")
@@ -104,6 +103,8 @@ def generate(req: GenerateRequest, _=Depends(get_current_user)):
         return {"result": result, "messages": messages}
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
