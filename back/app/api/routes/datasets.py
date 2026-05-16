@@ -49,6 +49,11 @@ def create_dataset(req: DatasetCreate, db: Session = Depends(get_db), _=Depends(
     from app.models.base import Dataset
     import os
 
+    # 1プロジェクト1データセット制限
+    existing = db.query(Dataset).filter(Dataset.project_id == req.project_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="このプロジェクトにはすでにデータセットが存在します")
+
     import uuid
     auto_name = f"ds-{uuid.uuid4().hex[:12]}"
 

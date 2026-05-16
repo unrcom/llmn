@@ -7,7 +7,7 @@ import { Loader2, Trash2, Plus, Pencil, Check, X } from 'lucide-react'
 
 interface Project { id: number; display_name: string }
 interface Dataset { id: number; project_id: number; name: string; display_name: string; description: string | null; created_at: string }
-interface Document { id: string; content: string }
+interface Document { id: string; title: string; content: string }
 
 export default function DatasetPage() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -19,6 +19,7 @@ export default function DatasetPage() {
   const [creatingDataset, setCreatingDataset] = useState(false)
 
   // ドキュメント追加
+  const [newDocTitle, setNewDocTitle] = useState('')
   const [newDocContent, setNewDocContent] = useState('')
   const [showAddDoc, setShowAddDoc] = useState(false)
   const [savingDoc, setSavingDoc] = useState(false)
@@ -98,7 +99,11 @@ export default function DatasetPage() {
     setError(null)
     setSavingDoc(true)
     try {
-      await apiClient.post(`/datasets/${dataset.id}/documents`, { content: newDocContent })
+      await apiClient.post(`/datasets/${dataset.id}/documents`, {
+        title: newDocTitle.trim() || undefined,
+        content: newDocContent
+      })
+      setNewDocTitle('')
       setNewDocContent('')
       setShowAddDoc(false)
       const res = await apiClient.get(`/datasets/${dataset.id}/documents`)
@@ -182,18 +187,25 @@ export default function DatasetPage() {
               {/* ドキュメント追加フォーム */}
               {showAddDoc && (
                 <div className="border rounded p-3 bg-gray-50 space-y-2">
+                  <input
+                    type="text"
+                    placeholder="タイトル（任意・検索対象外）"
+                    value={newDocTitle}
+                    onChange={e => setNewDocTitle(e.target.value)}
+                    className="w-full border rounded px-3 py-1.5 text-sm bg-white"
+                  />
                   <Textarea
                     rows={4}
-                    placeholder='{"title": "...", "content": "..."}'
+                    placeholder="本文（検索対象）"
                     value={newDocContent}
                     onChange={e => setNewDocContent(e.target.value)}
-                    className="text-sm font-mono"
+                    className="text-sm"
                   />
                   <div className="flex gap-2">
                     <Button size="sm" onClick={addDocument} disabled={savingDoc}>
                       {savingDoc ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />登録中...</> : '登録'}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => { setShowAddDoc(false); setNewDocContent('') }}>キャンセル</Button>
+                    <Button size="sm" variant="outline" onClick={() => { setShowAddDoc(false); setNewDocTitle(''); setNewDocContent('') }}>キャンセル</Button>
                   </div>
                 </div>
               )}
@@ -220,7 +232,12 @@ export default function DatasetPage() {
                         </div>
                       ) : (
                         <div className="flex items-start justify-between gap-2">
-                          <pre className="text-sm flex-1 whitespace-pre-wrap break-all font-mono">{doc.content}</pre>
+                          <div className="flex-1 min-w-0">
+                            {doc.title && (
+                              <div className="text-xs font-medium text-gray-500 mb-1">{doc.title}</div>
+                            )}
+                            <p className="text-sm text-gray-800 whitespace-pre-wrap break-all">{doc.content}</p>
+                          </div>
                           <div className="flex gap-1 shrink-0">
                             <button onClick={() => { setEditingDocId(doc.id); setEditingContent(doc.content) }} className="text-gray-400 hover:text-blue-500">
                               <Pencil className="h-3 w-3" />

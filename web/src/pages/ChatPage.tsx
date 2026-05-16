@@ -41,6 +41,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loadingModel, setLoadingModel] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [ragMode, setRagMode] = useState(false)
+  const [ragContext, setRagContext] = useState<string | null>(null)
   const [loadedModelName, setLoadedModelName] = useState<string | null>(null)
   const [loadedAdapterPath, setLoadedAdapterPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -58,8 +60,12 @@ export default function ChatPage() {
   }, [])
 
   useEffect(() => {
-    if (!selectedProjectId) { setDatasets([]); return }
-    apiClient.get(`/datasets?project_id=${selectedProjectId}`).then(res => setDatasets(res.data))
+    if (!selectedProjectId) { setDatasets([]); setSelectedDatasetId(null); return }
+    apiClient.get(`/datasets?project_id=${selectedProjectId}`).then(res => {
+      setDatasets(res.data)
+      if (res.data.length > 0) setSelectedDatasetId(res.data[0].id)
+      else setSelectedDatasetId(null)
+    })
     apiClient.get(`/system-prompts?project_id=${selectedProjectId}`).then(res => {
       if (res.data.length > 0) {
         setSystemPrompt(res.data[0].content)
@@ -127,7 +133,9 @@ export default function ChatPage() {
         system_prompt: systemPrompt || null,
         max_tokens: 512,
         dataset_id: selectedDatasetId || null,
+        rag_mode: ragMode,
       })
+      setRagContext(res.data.rag_context || null)
       // バックエンドから返ってきたmessages（tool含む）で更新
       const assistantMsg: Message = { role: 'assistant', content: res.data.result }
       setMessages([...newMessages, assistantMsg])
@@ -187,17 +195,16 @@ export default function ChatPage() {
           </select>
         </div>
 
-        {selectedProjectId && (
-          <div>
-            <Label className="text-xs text-gray-500 mb-1 block">データセット（省略可）</Label>
-            <select
-              className="w-full border rounded px-2 py-1.5 text-sm"
-              value={selectedDatasetId ?? ''}
-              onChange={e => setSelectedDatasetId(Number(e.target.value) || null)}
+        {selectedProjectId && selectedDatasetId && (
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-gray-500">RAGモード</Label>
+            <button
+              type="button"
+              onClick={() => { setRagMode(v => !v); setRagContext(null) }}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ragMode ? 'bg-blue-600' : 'bg-gray-300'}`}
             >
-              <option value="">-- なし --</option>
-              {datasets.map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
-            </select>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${ragMode ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
           </div>
         )}
 
@@ -256,6 +263,15 @@ export default function ChatPage() {
           )}
           <div ref={bottomRef} />
         </div>
+
+        {ragContext && (
+          <div className="px-4 pt-2">
+            <details className="text-xs text-gray-400 border rounded p-2 bg-gray-50">
+              <summary className="cursor-pointer">🔍 RAG検索コンテキスト</summary>
+              <pre className="mt-1 whitespace-pre-wrap break-all text-gray-500">{ragContext}</pre>
+            </details>
+          </div>
+        )}
 
         <div className="border-t p-4 bg-white flex gap-2 items-end">
           <Textarea

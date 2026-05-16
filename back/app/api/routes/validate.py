@@ -20,6 +20,7 @@ class GenerateRequest(BaseModel):
     system_prompt: Optional[str] = None
     max_tokens: int = 512
     dataset_id: Optional[int] = None
+    rag_mode: bool = False
 
 
 class StatusResponse(BaseModel):
@@ -78,6 +79,21 @@ def generate(req: GenerateRequest, _=Depends(get_current_user)):
         if req.system_prompt:
             messages.append({"role": "system", "content": req.system_prompt})
         messages.extend(req.messages)
+
+        # RAGモード：常にChromaDB検索してコンテキストに追加
+        if req.rag_mode and req.dataset_id:
+            user_query = next((m['content'] for m in reversed(req.messages) if m['role'] == 'user'), None)
+            if user_query:
+                db_gen = get_db()
+                db = next(db_gen)
+                search_result = _search_chroma(user_query, req.dataset_id, db)
+                # システムプロンプトに検索結果を追加
+                rag_system = (req.system_prompt or '') + f'\n\n【参考情報】\n{search_result}'
+                messages = []
+                messages.append({"role": "system", "content": rag_system})
+                messages.extend(req.messages)
+                result = llm.generate_with_messages(messages, req.max_tokens)
+                return {"result": result, "messages": messages, "rag_used": True, "rag_context": search_result}
 
         # 1回目の推論
         result = llm.generate_with_messages(messages, req.max_tokens)
