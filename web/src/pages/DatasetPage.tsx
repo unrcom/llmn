@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { apiClient } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Trash2, Plus, Pencil, Check, X } from 'lucide-react'
+import { Loader2, Trash2, Plus, Pencil, Check, X, Download, Upload } from 'lucide-react'
 
 interface Project { id: number; display_name: string }
 interface Dataset { id: number; project_id: number; name: string; display_name: string; description: string | null; created_at: string }
@@ -15,21 +15,20 @@ export default function DatasetPage() {
   const [dataset, setDataset] = useState<Dataset | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
 
-  // データセット作成
   const [creatingDataset, setCreatingDataset] = useState(false)
-
-  // ドキュメント追加
   const [newDocTitle, setNewDocTitle] = useState('')
   const [newDocContent, setNewDocContent] = useState('')
   const [showAddDoc, setShowAddDoc] = useState(false)
   const [savingDoc, setSavingDoc] = useState(false)
-
-  // ドキュメント編集
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
-
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // エクスポート・インポート
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<string | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     apiClient.get('/projects').then(res => setProjects(res.data))
@@ -55,9 +54,7 @@ export default function DatasetPage() {
           return null
         }
       })
-      .then(res => {
-        if (res) setDocuments(res.data)
-      })
+      .then(res => { if (res) setDocuments(res.data) })
       .catch(() => setError('データの読み込みに失敗しました'))
       .finally(() => setLoading(false))
   }, [selectedProjectId])
@@ -124,7 +121,6 @@ export default function DatasetPage() {
 
   function splitIntoChunks(text: string, maxLen = 500): string[] {
     const result: string[] = []
-    // 空行で段落分割
     const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
     let current = ''
     for (const para of paragraphs) {
@@ -132,7 +128,6 @@ export default function DatasetPage() {
         current = current ? current + '\n\n' + para : para
       } else {
         if (current) result.push(current.trim())
-        // 段落自体が長い場合は句読点で分割
         if (para.length > maxLen) {
           const sentences = para.split(/(?<=[。！？\n])/)
           let sub = ''
@@ -184,9 +179,9 @@ export default function DatasetPage() {
   async function updateDocument(docId: string) {
     setError(null)
     try {
-      await apiClient.put(`/datasets/${dataset.id}/documents/${docId}`, { content: editingContent })
+      await apiClient.put(`/datasets/${dataset!.id}/documents/${docId}`, { content: editingContent })
       setEditingDocId(null)
-      const res = await apiClient.get(`/datasets/${dataset.id}/documents`)
+      const res = await apiClient.get(`/datasets/${dataset!.id}/documents`)
       setDocuments(res.data)
     } catch (e: any) {
       setError(e.response?.data?.detail || 'エラーが発生しました')
@@ -197,6 +192,49 @@ export default function DatasetPage() {
     if (!dataset || !confirm('削除しますか？')) return
     await apiClient.delete(`/datasets/${dataset.id}/documents/${docId}`)
     setDocuments(d => d.filter(x => x.id !== docId))
+  }
+
+  // エクスポート（プロジェクト単位）
+  async function exportDataset() {
+    if (!dataset) return
+    try {
+      const res = await apiClient.get(`/datasets/${dataset.id}/export`, { responseType: 'blob' })
+      const cd = res.headers['content-disposition'] || ''
+      const match = cd.match(/filename="(.+)"/)
+      const filename = match ? match[1] : `${dataset.name}.md`
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/markdown' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('エクスポートに失敗しました')
+    }
+  }
+
+  // インポート（プロジェクト単位）
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!dataset || !e.target.files?.[0]) return
+    const file = e.target.files[0]
+    e.target.value = ''
+    setImporting(true)
+    setImportResult(null)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await apiClient.post(`/datasets/${dataset.id}/import`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      setImportResult(`インポート完了：${res.data.imported}件追加・更新、${res.data.skipped}件スキップ`)
+      const docs = await apiClient.get(`/datasets/${dataset.id}/documents`)
+      setDocuments(docs.data)
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'インポートに失敗しました')
+    } finally {
+      setImporting(false)
+    }
   }
 
   return (
@@ -237,7 +275,15 @@ export default function DatasetPage() {
                   <span className="text-sm font-medium text-gray-700">{dataset.display_name}</span>
                   <span className="ml-2 text-xs text-gray-400">{documents.length} 件</span>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
+                  <Button size="sm" variant="outline" onClick={exportDataset} title="このデータセットをエクスポート">
+                    <Download className="h-3 w-3 mr-1" />エクスポート
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => importInputRef.current?.click()} disabled={importing} title="MDファイルからインポート">
+                    {importing ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
+                    インポート
+                  </Button>
+                  <input ref={importInputRef} type="file" accept=".md" className="hidden" onChange={handleImportFile} />
                   <Button size="sm" variant="outline" onClick={() => { setShowBulkImport(v => !v); setShowAddDoc(false); setChunks([]); setBulkText(''); setBulkTitlePrefix('') }}>
                     一括登録
                   </Button>
@@ -251,6 +297,12 @@ export default function DatasetPage() {
               </div>
 
               {error && <div className="text-red-500 text-sm">{error}</div>}
+              {importResult && (
+                <div className="text-green-600 text-sm flex items-center justify-between">
+                  {importResult}
+                  <button onClick={() => setImportResult(null)}><X className="h-3 w-3" /></button>
+                </div>
+              )}
 
               {/* 一括登録フォーム */}
               {showBulkImport && (
@@ -258,7 +310,7 @@ export default function DatasetPage() {
                   <div className="text-xs text-gray-500 font-medium">一括登録（長文を自動分割）</div>
                   <input
                     type="text"
-                    placeholder="タイトルプレフィックス（例：ホログラフィー原理）→ 「ホログラフィー原理 #1」「ホログラフィー原理 #2」..."
+                    placeholder="タイトルプレフィックス（例：ホログラフィー原理）→ 「ホログラフィー原理 #1」..."
                     value={bulkTitlePrefix}
                     onChange={e => setBulkTitlePrefix(e.target.value)}
                     className="w-full border rounded px-3 py-1.5 text-sm bg-white"
@@ -301,11 +353,6 @@ export default function DatasetPage() {
                             rows={6}
                             value={chunk}
                             onChange={e => setChunks(prev => prev.map((c, j) => j === i ? e.target.value : c))}
-                            onFocus={e => {
-                              // 前のチャンクのTextareaを末尾にスクロール
-                              const prev = e.currentTarget.closest('.space-y-1')?.previousElementSibling?.querySelector('textarea')
-                              if (prev) prev.scrollTop = prev.scrollHeight
-                            }}
                             className={`text-sm ${chunk.length >= 700 ? 'border-red-400' : chunk.length >= 500 ? 'border-yellow-400' : ''}`}
                           />
                         </div>

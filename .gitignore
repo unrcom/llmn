@@ -18,3 +18,4 @@ llmn_db/.env
 # MLX
 adapters/
 chroma_db/
+backups/
