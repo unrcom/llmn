@@ -199,10 +199,15 @@ export default function DatasetPage() {
                     placeholder="本文（検索対象）"
                     value={newDocContent}
                     onChange={e => setNewDocContent(e.target.value)}
-                    className="text-sm"
+                    className={`text-sm ${newDocContent.length >= 700 ? 'border-red-400' : newDocContent.length >= 500 ? 'border-yellow-400' : ''}`}
                   />
+                  <div className={`text-xs text-right ${newDocContent.length >= 700 ? 'text-red-500 font-medium' : newDocContent.length >= 500 ? 'text-yellow-600' : 'text-gray-400'}`}>
+                    {newDocContent.length} 文字
+                    {newDocContent.length >= 700 && '　700文字以上は登録できません'}
+                    {newDocContent.length >= 500 && newDocContent.length < 700 && '　500文字を超えています（推奨：500文字以内）'}
+                  </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={addDocument} disabled={savingDoc}>
+                    <Button size="sm" onClick={addDocument} disabled={savingDoc || newDocContent.length >= 700}>
                       {savingDoc ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />登録中...</> : '登録'}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => { setShowAddDoc(false); setNewDocTitle(''); setNewDocContent('') }}>キャンセル</Button>

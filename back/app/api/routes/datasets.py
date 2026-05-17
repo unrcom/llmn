@@ -113,20 +113,10 @@ def add_document(
     import uuid
     from app.models.base import Dataset
 
+    if len(req.content) > 700:
+        raise HTTPException(status_code=400, detail="本文は700文字以内にしてください")
+
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="データセットが見つかりません")
-
-    chroma_path = CHROMA_DB_DIR
-    client = chromadb.PersistentClient(path=chroma_path)
-    collection = client.get_or_create_collection(dataset.name)
-
-    doc_id = req.doc_id or str(uuid.uuid4())
-    collection.add(
-        documents=[req.content],
-        ids=[doc_id],
-    )
-    return {"ok": True, "id": doc_id}
 
 
 @router.get("/{dataset_id}/documents")
