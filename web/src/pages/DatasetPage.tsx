@@ -7,21 +7,33 @@ import { Loader2, Trash2, Plus, Pencil, Check, X, Download, Upload } from 'lucid
 
 interface Project { id: number; display_name: string }
 interface Dataset { id: number; project_id: number; name: string; display_name: string; description: string | null; created_at: string }
-interface Document { id: string; title: string; content: string }
+interface Document { id: string; title: string; content: string; source_id: string; source_data: string; created_at: string }
+interface Source { source_id: string; source_data: string; created_at: string }
 
 export default function DatasetPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [dataset, setDataset] = useState<Dataset | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
+  const [sources, setSources] = useState<Source[]>([])
 
   const [creatingDataset, setCreatingDataset] = useState(false)
-  const [newDocTitle, setNewDocTitle] = useState('')
-  const [newDocContent, setNewDocContent] = useState('')
   const [showAddDoc, setShowAddDoc] = useState(false)
   const [savingDoc, setSavingDoc] = useState(false)
+
+  // 単体追加フォーム
+  const [newDocTitle, setNewDocTitle] = useState('')
+  const [newDocContent, setNewDocContent] = useState('')
+  const [newDocSourceId, setNewDocSourceId] = useState('new')
+  const [newDocSourceData, setNewDocSourceData] = useState('')
+  const [newDocCreatedAt, setNewDocCreatedAt] = useState(today())
+
+  // ドキュメント編集
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
+  const [editingSourceData, setEditingSourceData] = useState('')
+  const [editingCreatedAt, setEditingCreatedAt] = useState('')
+
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -30,34 +42,59 @@ export default function DatasetPage() {
   const [importResult, setImportResult] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
 
+  function today() {
+    return new Date().toISOString().slice(0, 19)
+  }
+
   useEffect(() => {
     apiClient.get('/projects').then(res => setProjects(res.data))
   }, [])
+
+  async function loadDataset(projectId: number) {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await apiClient.get(`/datasets?project_id=${projectId}`)
+      const list: Dataset[] = res.data
+      if (list.length > 0) {
+        setDataset(list[0])
+        const [docsRes, sourcesRes] = await Promise.all([
+          apiClient.get(`/datasets/${list[0].id}/documents`),
+          apiClient.get(`/datasets/${list[0].id}/sources`),
+        ])
+        setDocuments(docsRes.data)
+        setSources(sourcesRes.data)
+      } else {
+        setDataset(null)
+        setDocuments([])
+        setSources([])
+      }
+    } catch {
+      setError('データの読み込みに失敗しました')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!selectedProjectId) {
       setDataset(null)
       setDocuments([])
+      setSources([])
       return
     }
-    setLoading(true)
-    setError(null)
-    apiClient.get(`/datasets?project_id=${selectedProjectId}`)
-      .then(res => {
-        const list: Dataset[] = res.data
-        if (list.length > 0) {
-          setDataset(list[0])
-          return apiClient.get(`/datasets/${list[0].id}/documents`)
-        } else {
-          setDataset(null)
-          setDocuments([])
-          return null
-        }
-      })
-      .then(res => { if (res) setDocuments(res.data) })
-      .catch(() => setError('データの読み込みに失敗しました'))
-      .finally(() => setLoading(false))
+    loadDataset(selectedProjectId)
   }, [selectedProjectId])
+
+  async function refreshDocs() {
+    if (!dataset) return
+    const [docsRes, sourcesRes] = await Promise.all([
+      apiClient.get(`/datasets/${dataset.id}/documents`),
+      apiClient.get(`/datasets/${dataset.id}/sources`),
+    ])
+    setDocuments(docsRes.data)
+    setSources(sourcesRes.data)
+  }
 
   async function createDataset() {
     if (!selectedProjectId) return
@@ -72,6 +109,7 @@ export default function DatasetPage() {
       })
       setDataset(res.data)
       setDocuments([])
+      setSources([])
     } catch (e: any) {
       setError(e.response?.data?.detail || 'データセットの作成に失敗しました')
     } finally {
@@ -86,6 +124,7 @@ export default function DatasetPage() {
       await apiClient.delete(`/datasets/${dataset.id}`)
       setDataset(null)
       setDocuments([])
+      setSources([])
     } catch (e: any) {
       setError(e.response?.data?.detail || 'データセットの削除に失敗しました')
     }
@@ -96,15 +135,21 @@ export default function DatasetPage() {
     setError(null)
     setSavingDoc(true)
     try {
+      const source_id = newDocSourceId === 'new' ? undefined : newDocSourceId
       await apiClient.post(`/datasets/${dataset.id}/documents`, {
         title: newDocTitle.trim() || undefined,
-        content: newDocContent
+        content: newDocContent,
+        source_id,
+        source_data: newDocSourceData.trim() || undefined,
+        created_at: newDocCreatedAt || undefined,
       })
       setNewDocTitle('')
       setNewDocContent('')
+      setNewDocSourceId('new')
+      setNewDocSourceData('')
+      setNewDocCreatedAt(today())
       setShowAddDoc(false)
-      const res = await apiClient.get(`/datasets/${dataset.id}/documents`)
-      setDocuments(res.data)
+      await refreshDocs()
     } catch (e: any) {
       setError(e.response?.data?.detail || 'エラーが発生しました')
     } finally {
@@ -116,6 +161,9 @@ export default function DatasetPage() {
   const [showBulkImport, setShowBulkImport] = useState(false)
   const [bulkText, setBulkText] = useState('')
   const [bulkTitlePrefix, setBulkTitlePrefix] = useState('')
+  const [bulkSourceId, setBulkSourceId] = useState('new')
+  const [bulkSourceData, setBulkSourceData] = useState('')
+  const [bulkCreatedAt, setBulkCreatedAt] = useState(today())
   const [chunks, setChunks] = useState<string[]>([])
   const [bulkSaving, setBulkSaving] = useState(false)
 
@@ -132,9 +180,8 @@ export default function DatasetPage() {
           const sentences = para.split(/(?<=[。！？\n])/)
           let sub = ''
           for (const s of sentences) {
-            if ((sub + s).length <= maxLen) {
-              sub += s
-            } else {
+            if ((sub + s).length <= maxLen) { sub += s }
+            else {
               if (sub) result.push(sub.trim())
               sub = s.length > maxLen ? s.slice(0, maxLen) : s
             }
@@ -154,6 +201,7 @@ export default function DatasetPage() {
     if (!dataset || chunks.length === 0) return
     setBulkSaving(true)
     setError(null)
+    const source_id = bulkSourceId === 'new' ? undefined : bulkSourceId
     try {
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i]
@@ -161,13 +209,21 @@ export default function DatasetPage() {
         const title = bulkTitlePrefix.trim()
           ? `${bulkTitlePrefix.trim()} #${i + 1}`
           : chunk.slice(0, 20).replace(/\n/g, ' ')
-        await apiClient.post(`/datasets/${dataset.id}/documents`, { title, content: chunk })
+        await apiClient.post(`/datasets/${dataset.id}/documents`, {
+          title,
+          content: chunk,
+          source_id,
+          source_data: bulkSourceData.trim() || undefined,
+          created_at: bulkCreatedAt || undefined,
+        })
       }
-      const res = await apiClient.get(`/datasets/${dataset.id}/documents`)
-      setDocuments(res.data)
+      await refreshDocs()
       setShowBulkImport(false)
       setBulkText('')
       setBulkTitlePrefix('')
+      setBulkSourceId('new')
+      setBulkSourceData('')
+      setBulkCreatedAt(today())
       setChunks([])
     } catch (e: any) {
       setError(e.response?.data?.detail || '一括登録に失敗しました')
@@ -179,10 +235,13 @@ export default function DatasetPage() {
   async function updateDocument(docId: string) {
     setError(null)
     try {
-      await apiClient.put(`/datasets/${dataset!.id}/documents/${docId}`, { content: editingContent })
+      await apiClient.put(`/datasets/${dataset!.id}/documents/${docId}`, {
+        content: editingContent,
+        source_data: editingSourceData,
+        created_at: editingCreatedAt,
+      })
       setEditingDocId(null)
-      const res = await apiClient.get(`/datasets/${dataset!.id}/documents`)
-      setDocuments(res.data)
+      await refreshDocs()
     } catch (e: any) {
       setError(e.response?.data?.detail || 'エラーが発生しました')
     }
@@ -191,10 +250,10 @@ export default function DatasetPage() {
   async function deleteDocument(docId: string) {
     if (!dataset || !confirm('削除しますか？')) return
     await apiClient.delete(`/datasets/${dataset.id}/documents/${docId}`)
-    setDocuments(d => d.filter(x => x.id !== docId))
+    await refreshDocs()
   }
 
-  // エクスポート（プロジェクト単位）
+  // エクスポート
   async function exportDataset() {
     if (!dataset) return
     try {
@@ -213,7 +272,7 @@ export default function DatasetPage() {
     }
   }
 
-  // インポート（プロジェクト単位）
+  // インポート
   async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (!dataset || !e.target.files?.[0]) return
     const file = e.target.files[0]
@@ -228,13 +287,30 @@ export default function DatasetPage() {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setImportResult(`インポート完了：${res.data.imported}件追加・更新、${res.data.skipped}件スキップ`)
-      const docs = await apiClient.get(`/datasets/${dataset.id}/documents`)
-      setDocuments(docs.data)
+      await refreshDocs()
     } catch (e: any) {
       setError(e.response?.data?.detail || 'インポートに失敗しました')
     } finally {
       setImporting(false)
     }
+  }
+
+  // 資料選択UI共通
+  function SourceSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+    return (
+      <select
+        className="w-full border rounded px-3 py-1.5 text-sm bg-white"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        <option value="new">新規資料</option>
+        {sources.map(s => (
+          <option key={s.source_id} value={s.source_id}>
+            {s.source_data || s.source_id}
+          </option>
+        ))}
+      </select>
+    )
   }
 
   return (
@@ -253,7 +329,6 @@ export default function DatasetPage() {
         </select>
       </div>
 
-      {/* ドキュメントエリア */}
       {selectedProjectId && (
         <>
           {loading ? (
@@ -276,15 +351,15 @@ export default function DatasetPage() {
                   <span className="ml-2 text-xs text-gray-400">{documents.length} 件</span>
                 </div>
                 <div className="flex gap-2 flex-wrap justify-end">
-                  <Button size="sm" variant="outline" onClick={exportDataset} title="このデータセットをエクスポート">
+                  <Button size="sm" variant="outline" onClick={exportDataset} title="エクスポート">
                     <Download className="h-3 w-3 mr-1" />エクスポート
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => importInputRef.current?.click()} disabled={importing} title="MDファイルからインポート">
+                  <Button size="sm" variant="outline" onClick={() => importInputRef.current?.click()} disabled={importing} title="インポート">
                     {importing ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
                     インポート
                   </Button>
                   <input ref={importInputRef} type="file" accept=".md" className="hidden" onChange={handleImportFile} />
-                  <Button size="sm" variant="outline" onClick={() => { setShowBulkImport(v => !v); setShowAddDoc(false); setChunks([]); setBulkText(''); setBulkTitlePrefix('') }}>
+                  <Button size="sm" variant="outline" onClick={() => { setShowBulkImport(v => !v); setShowAddDoc(false); setChunks([]); setBulkText('') }}>
                     一括登録
                   </Button>
                   <Button size="sm" onClick={() => { setShowAddDoc(v => !v); setShowBulkImport(false); setError(null) }}>
@@ -308,24 +383,31 @@ export default function DatasetPage() {
               {showBulkImport && (
                 <div className="border rounded p-3 bg-gray-50 space-y-3">
                   <div className="text-xs text-gray-500 font-medium">一括登録（長文を自動分割）</div>
-                  <input
-                    type="text"
-                    placeholder="タイトルプレフィックス（例：ホログラフィー原理）→ 「ホログラフィー原理 #1」..."
-                    value={bulkTitlePrefix}
-                    onChange={e => setBulkTitlePrefix(e.target.value)}
-                    className="w-full border rounded px-3 py-1.5 text-sm bg-white"
-                  />
-                  <Textarea
-                    rows={6}
-                    placeholder="長文テキストを貼り付けてください"
-                    value={bulkText}
-                    onChange={e => { setBulkText(e.target.value); setChunks([]) }}
-                    className="text-sm"
-                  />
+                  <div className="space-y-2">
+                    <div>
+                      <Label className="text-xs text-gray-500">資料</Label>
+                      <SourceSelector value={bulkSourceId} onChange={v => { setBulkSourceId(v); if (v !== 'new') { const s = sources.find(s => s.source_id === v); if (s) { setBulkSourceData(s.source_data); setBulkCreatedAt(s.created_at.slice(0, 10)) } } }} />
+                    </div>
+                    {bulkSourceId === 'new' && (
+                      <>
+                        <div>
+                          <Label className="text-xs text-gray-500">資料情報（出典・著者など）</Label>
+                          <input type="text" placeholder="例：ホログラフィー原理とはなにか / 橋本幸士 / ブルーバックス" value={bulkSourceData} onChange={e => setBulkSourceData(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-gray-500">登録日時</Label>
+                          <input type="datetime-local" step="1" value={bulkCreatedAt} onChange={e => setBulkCreatedAt(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                        </div>
+                      </>
+                    )}
+                    <div>
+                      <Label className="text-xs text-gray-500">タイトルプレフィックス</Label>
+                      <input type="text" placeholder="例：ホログラフィー原理 → 「ホログラフィー原理 #1」..." value={bulkTitlePrefix} onChange={e => setBulkTitlePrefix(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                    </div>
+                  </div>
+                  <Textarea rows={6} placeholder="長文テキストを貼り付けてください" value={bulkText} onChange={e => { setBulkText(e.target.value); setChunks([]) }} className="text-sm" />
                   <div className="flex gap-2 flex-wrap">
-                    <Button size="sm" variant="outline" onClick={() => setChunks(splitIntoChunks(bulkText))} disabled={!bulkText.trim()}>
-                      分割プレビュー
-                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setChunks(splitIntoChunks(bulkText))} disabled={!bulkText.trim()}>分割プレビュー</Button>
                     {chunks.length > 0 && (
                       <Button size="sm" onClick={bulkRegister} disabled={bulkSaving || chunks.some(c => c.length >= 700)}>
                         {bulkSaving ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />登録中...</> : `まとめて登録（${chunks.length}件）`}
@@ -335,7 +417,7 @@ export default function DatasetPage() {
                   </div>
                   {chunks.length > 0 && (
                     <div className="space-y-2">
-                      <div className="text-xs text-gray-400">{chunks.length}件に分割されました。登録前に編集できます。</div>
+                      <div className="text-xs text-gray-400">{chunks.length}件に分割されました。</div>
                       {chunks.map((chunk, i) => (
                         <div key={i} className="space-y-1">
                           <div className="flex items-center justify-between">
@@ -344,17 +426,10 @@ export default function DatasetPage() {
                               <span className={`text-xs ${chunk.length >= 700 ? 'text-red-500 font-medium' : chunk.length >= 500 ? 'text-yellow-600' : 'text-gray-400'}`}>
                                 {chunk.length} 文字{chunk.length >= 700 ? '　要修正' : ''}
                               </span>
-                              <button onClick={() => setChunks(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400">
-                                <X className="h-3 w-3" />
-                              </button>
+                              <button onClick={() => setChunks(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400"><X className="h-3 w-3" /></button>
                             </div>
                           </div>
-                          <Textarea
-                            rows={6}
-                            value={chunk}
-                            onChange={e => setChunks(prev => prev.map((c, j) => j === i ? e.target.value : c))}
-                            className={`text-sm ${chunk.length >= 700 ? 'border-red-400' : chunk.length >= 500 ? 'border-yellow-400' : ''}`}
-                          />
+                          <Textarea rows={6} value={chunk} onChange={e => setChunks(prev => prev.map((c, j) => j === i ? e.target.value : c))} className={`text-sm ${chunk.length >= 700 ? 'border-red-400' : chunk.length >= 500 ? 'border-yellow-400' : ''}`} />
                         </div>
                       ))}
                     </div>
@@ -362,27 +437,32 @@ export default function DatasetPage() {
                 </div>
               )}
 
-              {/* ドキュメント追加フォーム */}
+              {/* 単体追加フォーム */}
               {showAddDoc && (
                 <div className="border rounded p-3 bg-gray-50 space-y-2">
-                  <input
-                    type="text"
-                    placeholder="タイトル（任意・検索対象外）"
-                    value={newDocTitle}
-                    onChange={e => setNewDocTitle(e.target.value)}
-                    className="w-full border rounded px-3 py-1.5 text-sm bg-white"
-                  />
-                  <Textarea
-                    rows={4}
-                    placeholder="本文（検索対象）"
-                    value={newDocContent}
-                    onChange={e => setNewDocContent(e.target.value)}
-                    className={`text-sm ${newDocContent.length >= 700 ? 'border-red-400' : newDocContent.length >= 500 ? 'border-yellow-400' : ''}`}
-                  />
+                  <div>
+                    <Label className="text-xs text-gray-500">資料</Label>
+                    <SourceSelector value={newDocSourceId} onChange={v => { setNewDocSourceId(v); if (v !== 'new') { const s = sources.find(s => s.source_id === v); if (s) { setNewDocSourceData(s.source_data); setNewDocCreatedAt(s.created_at.slice(0, 10)) } } }} />
+                  </div>
+                  {newDocSourceId === 'new' && (
+                    <>
+                      <div>
+                        <Label className="text-xs text-gray-500">資料情報（出典・著者など）</Label>
+                        <input type="text" placeholder="例：ホログラフィー原理とはなにか / 橋本幸士 / ブルーバックス" value={newDocSourceData} onChange={e => setNewDocSourceData(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-500">登録日時</Label>
+                        <input type="datetime-local" step="1" value={newDocCreatedAt} onChange={e => setNewDocCreatedAt(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <Label className="text-xs text-gray-500">タイトル（任意）</Label>
+                    <input type="text" placeholder="タイトル" value={newDocTitle} onChange={e => setNewDocTitle(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                  </div>
+                  <Textarea rows={4} placeholder="本文（検索対象）" value={newDocContent} onChange={e => setNewDocContent(e.target.value)} className={`text-sm ${newDocContent.length >= 700 ? 'border-red-400' : newDocContent.length >= 500 ? 'border-yellow-400' : ''}`} />
                   <div className={`text-xs text-right ${newDocContent.length >= 700 ? 'text-red-500 font-medium' : newDocContent.length >= 500 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                    {newDocContent.length} 文字
-                    {newDocContent.length >= 700 && '　700文字以上は登録できません'}
-                    {newDocContent.length >= 500 && newDocContent.length < 700 && '　500文字を超えています（推奨：500文字以内）'}
+                    {newDocContent.length} 文字{newDocContent.length >= 700 && '　700文字以上は登録できません'}
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={addDocument} disabled={savingDoc || newDocContent.length >= 700}>
@@ -402,12 +482,15 @@ export default function DatasetPage() {
                     <div key={doc.id} className="border rounded p-3 bg-white">
                       {editingDocId === doc.id ? (
                         <div className="space-y-2">
-                          <Textarea
-                            rows={4}
-                            value={editingContent}
-                            onChange={e => setEditingContent(e.target.value)}
-                            className="text-sm font-mono"
-                          />
+                          <div>
+                            <Label className="text-xs text-gray-500">資料情報</Label>
+                            <input type="text" value={editingSourceData} onChange={e => setEditingSourceData(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-gray-500">登録日時</Label>
+                            <input type="datetime-local" step="1" value={editingCreatedAt} onChange={e => setEditingCreatedAt(e.target.value)} className="w-full border rounded px-3 py-1.5 text-sm bg-white" />
+                          </div>
+                          <Textarea rows={4} value={editingContent} onChange={e => setEditingContent(e.target.value)} className="text-sm font-mono" />
                           <div className="flex gap-2">
                             <Button size="sm" onClick={() => updateDocument(doc.id)}><Check className="h-3 w-3 mr-1" />保存</Button>
                             <Button size="sm" variant="outline" onClick={() => setEditingDocId(null)}><X className="h-3 w-3 mr-1" />キャンセル</Button>
@@ -416,13 +499,15 @@ export default function DatasetPage() {
                       ) : (
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            {doc.title && (
-                              <div className="text-xs font-medium text-gray-500 mb-1">{doc.title}</div>
-                            )}
+                            <div className="flex items-center gap-2 mb-1">
+                              {doc.title && <span className="text-xs font-medium text-gray-500">{doc.title}</span>}
+                              {doc.source_data && <span className="text-xs text-blue-500">{doc.source_data}</span>}
+                              {doc.created_at && <span className="text-xs text-gray-400">{doc.created_at.slice(0, 19).replace('T', ' ')}</span>}
+                            </div>
                             <p className="text-sm text-gray-800 whitespace-pre-wrap break-all">{doc.content}</p>
                           </div>
                           <div className="flex gap-1 shrink-0">
-                            <button onClick={() => { setEditingDocId(doc.id); setEditingContent(doc.content) }} className="text-gray-400 hover:text-blue-500">
+                            <button onClick={() => { setEditingDocId(doc.id); setEditingContent(doc.content); setEditingSourceData(doc.source_data); setEditingCreatedAt(doc.created_at.replace('Z', '').slice(0, 19)) }} className="text-gray-400 hover:text-blue-500">
                               <Pencil className="h-3 w-3" />
                             </button>
                             <button onClick={() => deleteDocument(doc.id)} className="text-gray-400 hover:text-red-500">
